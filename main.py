@@ -1,15 +1,68 @@
 import get_chunk
 import chunkRenderer
-import json
+import math
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import cProfile
 import pstats
+
+worldCoordsToRender = [
+    (209.5, 541.5)
+]
+
+chunkCoordsToRender = [
+    
+]
+
+regionFilesToRender = [
+    
+]
+
+def addBoundBoxToChunkCoordToRender(pointA: tuple[int, int], pointsB: tuple[int, int]):
+    bottomLeft = (min(pointA[0], pointsB[0]), min(pointA[1], pointsB[1]))
+    topRight = (max(pointA[0], pointsB[0]), max(pointA[1], pointsB[1]))
+    
+    for x in range(bottomLeft[0], topRight[0]):
+        for z in range(bottomLeft[1], topRight[1]):
+            chunkCoordsToRender.append((x, z))
+
+addBoundBoxToChunkCoordToRender((9, 32), (17, 37))
+
+def getLargestChunkIndexInChunkCoordsToRender():
+    biggestIndex = -1
+    for chunkCoord in chunkCoordsToRender:
+        chunkIndex = chunkCoord[0] + chunkCoord[1] * 64
+        biggestIndex = max(biggestIndex, chunkIndex)
+    
+    return biggestIndex
+
+def getSmallestChunkIndexInChunkCoordsToRender():
+    biggestIndex = 64 + 64 * 64
+    
+    for chunkCoord in chunkCoordsToRender:
+        chunkIndex = chunkCoord[0] + chunkCoord[1] * 64
+        biggestIndex = min(biggestIndex, chunkIndex)
+    
+    return biggestIndex
+
+# Convert world coordinates into chunk coordinates
+for worldCoord in worldCoordsToRender:
+    chunkCoordsToRender.append((
+        math.floor(worldCoord[0] / 16),
+        math.floor(worldCoord[1] / 16)
+    ))
+
+for chunkCoord in chunkCoordsToRender:
+    x = math.floor(chunkCoord[0]) >> 5
+    z = math.floor(chunkCoord[1]) >> 5
+    regionFileName = f"r.{x}.{z}.mca"
+    regionFilesToRender.append(regionFileName)
+    #print(regionFileName)
 
 def renderChunks():
     chunkRenderer.renderFrame()
 
 def getChunksFromRegionFile(fileName):
-    chunks = get_chunk.read_region_file(fileName, 128, 0, -1, 7)
+    chunks = get_chunk.read_region_file(fileName, 337, 4, -1, 7)
     
     #with open("chunks.json", "w") as f:
     #    f.write(json.dumps(chunks, indent=4))
@@ -43,7 +96,24 @@ def doGreedyMesher():
 
 def main():
     chunkRenderer.blocks = []
-    chunks = getChunksFromRegionFile("./world/region/r.0.0.mca")
+    chunksUnfiltered = getChunksFromRegionFile(f"./world/region/{regionFileName}")
+    chunks = []
+    #chunks = chunksUnfiltered
+    
+    #"""
+    # Filter the chunks w/ only the correct position
+    for chunk in chunksUnfiltered:
+        chunkPosition = chunk[0][2]
+        chunkXZ = (math.floor(chunkPosition[0]/16), math.floor(chunkPosition[2]/16))
+        
+        print(chunkXZ, chunkCoordsToRender, chunkXZ in chunkCoordsToRender, regionFileName)
+        
+        if chunkXZ in chunkCoordsToRender:
+            chunks.append(chunk)
+    #"""
+    
+    if len(chunks) == 0: return
+
 
     print("starting to load chunks")
     loadChunks(chunks)

@@ -1,8 +1,8 @@
 # https://minecraft.wiki/w/NBT_format#Binary_format
 
-def getIndexOfKeyInNBT(btyesDataIn: bytes, key: str, startOffset: int = 0):
+def getIndexOfKeyInNBT(bytesDataIn: bytes, key: str, startOffset: int = 0):
     keyBytes = key.encode('utf-8')
-    firstIndexOfKey = btyesDataIn.find(keyBytes, startOffset)
+    firstIndexOfKey = bytesDataIn.find(keyBytes, startOffset)
     
     startOfNBTTag = firstIndexOfKey - 3
     return startOfNBTTag
@@ -32,6 +32,35 @@ def decodeTagLongArray(bytesDataIn: bytes, tagStartIndex: int):
     
     return longArray
 
+def readTagString(bytesDataIn: bytes, tagStartIndex: int):
+    tagID = bytesDataIn[tagStartIndex + 0]
+    
+    if tagID != 8:
+        raise Exception(f"The data provided & the start index ({tagStartIndex}) are not pointing to a TAG_String")
+    
+    stringName = readNextFewBytesAsString(bytesDataIn, tagStartIndex + 1)
+    
+    return stringName
+
+def readNextFewBytesAsString(bytesDataIn: bytes, startIndex: int):
+    stringLength = int.from_bytes(bytesDataIn[startIndex + 0 : startIndex + 2])
+    stringNameBytes = bytesDataIn[startIndex + 2 : startIndex + 2 + stringLength]
+    #print(stringLength, stringNameBytes)
+    stringName = stringNameBytes.decode("utf8")
+    return stringName
+
+def readNextTag(bytesDataIn: bytes, tagStartIndex: int):
+    tagID = bytesDataIn[tagStartIndex + 0]
+    
+    return readNextTagOfKnownType(bytesDataIn, tagStartIndex, tagID)
+    
+def readNextTagOfKnownType(bytesDataIn: bytes, tagStartIndex: int, tagID: int):
+    match tagID:
+        case 0: pass
+        case 8:
+            return readNextFewBytesAsString(bytesDataIn, tagStartIndex)
+        case _: raise Exception(f"Not any TagID I know of! Tag ID: {tagID} ~ Address: {tagStartIndex} / {hex(tagStartIndex)}")
+    
 
 def decodePaletteList(bytesDataIn: bytes, tagStartIndex: int):
     tagID = bytesDataIn[tagStartIndex + 0]
@@ -45,58 +74,75 @@ def decodePaletteList(bytesDataIn: bytes, tagStartIndex: int):
     listSizeIntBytes = bytesDataIn[tagStartIndex + tagNameLength + 3 : tagStartIndex + tagNameLength + 7]
     arraySize = int.from_bytes(listSizeIntBytes, byteorder="little", signed=True)
     
-    offsetForArray = tagStartIndex + tagNameLength + 7
-
-    nowOffset = offsetForArray
-    lastWasTagEnd = False
+    palette = []
     
-    for i in range(0, arraySize):
-        print(f"Checking data: {nowOffset}, {hex(nowOffset)}")
+    offsetForArray = tagStartIndex + tagNameLength + 7
+    for i in range(arraySize):
+        #print(f"Array Index for palette {i} : Size of palette {arraySize}")
         
-        dataType = bytesDataIn[nowOffset] # Should be 0a (10) -> TAG_Compound
-        if dataType != 10: raise Exception(f"Not 0x0a! Is it compound or something I should know? {dataType}")
-        # So we're making a json thingie
+        indexOfPropertiesStart = getIndexOfKeyInNBT(bytesDataIn, "Properties", offsetForArray)
+        indexOfNameStart = getIndexOfKeyInNBT(bytesDataIn, "Name", offsetForArray)
         
-        data = {}
+        #print(palette)
+        #print(hex(indexOfNameStart), hex(indexOfPropertiesStart))
         
-        keyDataType = bytesDataIn[nowOffset + 1]
-        print(f"Key check thingie ig: {keyDataType}")
-        
-        if lastWasTagEnd: # TAG_Compound : More JSON
-            lengthOfKey = int.from_bytes(bytesDataIn[nowOffset + 2 : nowOffset + 4]) # 4 b/c it's not inclusive :(
-            print(f"key - {lengthOfKey}")
-        
-        if keyDataType == 8:
-            lengthOfKey = int.from_bytes(bytesDataIn[nowOffset + 2 : nowOffset + 4]) # 4 b/c it's not inclusive :(
-            keyAddressStart = nowOffset + 4
-            keyAddressEnd = nowOffset + 4 + lengthOfKey        
-            key = (bytesDataIn[keyAddressStart : keyAddressEnd]).decode("utf-8")
+        if indexOfPropertiesStart < 0:
+            # Make it bigger than the name address to let it choose the name
+            indexOfPropertiesStart = indexOfNameStart + 1
+            #print("HEYYY WHY ARE WE LESS?!?!")
 
-            print(f"Key Data {keyDataType} - {lengthOfKey} - '{key}' - {hex(keyAddressEnd)}")
+            if indexOfNameStart < 0: break
+        
+        blockThingData = {}
+        
+        def getNameTagAndValue():
+            nameKey = readTagString(bytesDataIn, indexOfNameStart)
+            #print(f"Name out: {nameKey}")
             
-            lengthOfValue = int.from_bytes(bytesDataIn[keyAddressEnd : keyAddressEnd + 2]) # 4 b/c it's not inclusive :(
-            valueAddressStart = keyAddressEnd + 2
-            valueAddressEnd = keyAddressEnd + 2 + lengthOfValue
-            value = (bytesDataIn[valueAddressStart : valueAddressEnd]).decode("utf-8")
+            nameValue = readNextFewBytesAsString(bytesDataIn, indexOfNameStart + 3 + len(nameKey))
+            #print(f"Name value out: {nameValue}")
             
-            print(f"Value Data {lengthOfValue} - '{value}' - {hex(valueAddressEnd)}")
+            return nameKey, nameValue # Set offsetForArray
+        
+        
+        
+        # Properties is typically first, so if it isn't the first index, then we can (probably) assume that this element has no properties
+        if indexOfPropertiesStart > indexOfNameStart:
+            nameKeyShouldBeProperties, nameValue = getNameTagAndValue()
+            blockThingData[nameKeyShouldBeProperties] = nameValue
             
-            data[key] = value
-            
+            offsetForArray = indexOfNameStart + 4
         else:
-            raise Exception(f"Not 0x08 (TAG_String) nor 0x0a (TAG_Compound)! Key missing or smnth? {keyDataType}")
+            #print(hex(indexOfPropertiesStart))
+            nameKeyShouldBeProperties = readNextFewBytesAsString(bytesDataIn, indexOfPropertiesStart+1)
+            
+            properties = {}
+            
+            propertyType = bytesDataIn[indexOfPropertiesStart + 3 + len(nameKeyShouldBeProperties)]
+            #print(propertyType, hex(propertyType))
+            
+            propertyNameAddress = indexOfPropertiesStart + 3 + len(nameKeyShouldBeProperties) + 1
+            propertyName = readNextFewBytesAsString(bytesDataIn, propertyNameAddress)
+            #print(f"Property Name: {propertyName}")
+            
+            propertyValueAddress = propertyNameAddress + 2 + len(propertyName)
+            propertyValue = readNextTagOfKnownType(bytesDataIn, propertyValueAddress, propertyType)
+            
+            #print(f"Property value: {propertyValue} : address {propertyValueAddress} / {hex(propertyValueAddress)}")
+            
+            properties[propertyName] = propertyValue
+            
+            nameNameKey, nameValue = getNameTagAndValue()
+            
+            blockThingData[nameNameKey] = nameValue
+            blockThingData[nameKeyShouldBeProperties] = properties
+            
+            offsetForArray = indexOfNameStart + 4
         
-        
-        
-        isEnd = bytesDataIn[valueAddressEnd]
-        print(isEnd)
-        if isEnd == 0: lastWasTagEnd = True
-        
-        print(data)
-        
-        
-        # dataType (1), keyDataType (1), getKeyLength (2), lengthOfKey (whatever value it is), lengthOfValue (2),
-        # lengthOfValue (whatever value), checkEndByte (1)
-        nowOffset += 1 + 1 + 2 + lengthOfKey + 2 + lengthOfValue + 1
+        #print(blockThingData)
+        palette.append(blockThingData)
+
+    return palette
+    
 
 

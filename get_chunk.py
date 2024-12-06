@@ -239,51 +239,13 @@ def read_region_file(file_path, chunksToRead=1, startChunkIndex=0, subChunksToRe
             compressedChunkData = mcaFile.read(lengthInBytes - 1)
             uncompressedChunkData = decompressChunkData(compressedChunkData, compressionType)
             
-            dataIndices = []
-            paletteIndices = []
-            dataNextSearchOffset = 0
-            
-            while True:
-                blockStateIndex = DillionNBT.getIndexOfKeyInNBT(uncompressedChunkData, "block_states", dataNextSearchOffset)
-                if blockStateIndex < 0: break
-                #print(blockStateIndex)
-                
-                longIndex = DillionNBT.getIndexOfKeyInNBT(uncompressedChunkData, "data", blockStateIndex)
-                if longIndex < 0: break
-                #print(longArr)
-                
-                paletteIndex = DillionNBT.getIndexOfKeyInNBT(uncompressedChunkData, "palette", longIndex)
-                print(paletteIndex, hex(paletteIndex))
-                #paletteIndex = paletteIndices
-                DillionNBT.decodePaletteList(uncompressedChunkData, paletteIndex)
-                
-                dataIndices.append(longIndex)
-                dataNextSearchOffset = longIndex + 8
-                
-                break
-            
-            print(dataIndices, len(dataIndices))
-            
             """
-            for subChunkNumber in range(startSubChunkIndex, len(dataIndices)):
-                #blockPalette = blockStates["palette"]
-                
-                dataPositionInMemory = subChunkNumber
-                blockIndicesPacked = DillionNBT.decodeTagLongArray(dataPositionInMemory)
-                blockIndicesReal = [0] * 4096
-                
-                if len(blockIndicesPacked) > 1:
-                    blockIndicesReal = getCorrectIndices(blockIndicesPacked, numberOfBlocksInPalette-1, True)
+            print(uncompressedChunkData)
+            with open("./nbt.lw", "wb") as f:
+                f.write(uncompressedChunkData)
             """
             
-            #print(uncompressedChunkData)
-            #with open("./nbt.lw", "wb") as f:
-            #    f.write(uncompressedChunkData)
-            
-            #out = DillionNBT.get_specific_index(uncompressedChunkData, "biomes")
-            #print(out)
-            
-            """
+            #"""
             nbtChunkData = chunkDataToNBT(uncompressedChunkData)
             
             #nbtChunkJson = nbtChunkData.snbt(indent=4)
@@ -319,16 +281,22 @@ def read_region_file(file_path, chunksToRead=1, startChunkIndex=0, subChunksToRe
                 
                 chunkSection = chunkSections[subChunkNumber]
                 
+                #with open("Chunk.json", "w") as f:
+                #    f.write(str(chunkSection))
+                
+                if "block_states" not in chunkSection: continue
+                
                 blockStates = chunkSection["block_states"]
                 blockPalette = blockStates["palette"]
                 blockIndicesReal = [0] * 4096 # Fill this up with the first object, because if the palette only has 1 object, then this would error because all blocks in the 16x16x16 are the same block
                 
-                print(len(blockStates["data"]))
+                #print(len(blockStates["data"]))
                 
                 numberOfBlocksInPalette = len(blockPalette)
                 if numberOfBlocksInPalette > 1:
                     blockIndicesReal = getCorrectIndices(blockStates["data"], numberOfBlocksInPalette-1, isOneDotSixteenOrHigher)
                 
+                #print(blockPalette)
                 
                 chunks[-1].append([
                     blockIndicesReal,
@@ -338,7 +306,7 @@ def read_region_file(file_path, chunksToRead=1, startChunkIndex=0, subChunksToRe
                 
                 #print(position, chunkSection["Y"])
                 #break
-            """
+            #"""
             
             #break
         
