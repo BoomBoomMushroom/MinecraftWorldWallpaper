@@ -374,7 +374,7 @@ class Camera:
         self.fov = 45
         self.aspectRatio = window_size[0] / window_size[1]
         self.nearPlane = 0.1
-        self.farPlane = 100
+        self.farPlane = 1000
         
         self.projection = perspective(self.fov, self.aspectRatio, self.nearPlane, self.farPlane)
 
@@ -970,8 +970,8 @@ def renderFrame():
     view = camera.get_view_matrix()
     program['view'].write(view)
 
-    # Clear the screen
-    ctx.clear()
+    # Clear the screen (and set bg color)
+    ctx.clear(13/255, 70/255, 168/255)
     
     if positionsBuffer == None:
         positionsList = allInstanceData["positions"]

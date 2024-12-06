@@ -6,7 +6,7 @@ import cProfile
 import pstats
 
 worldCoordsToRender = [
-    (209.5, 541.5)
+    
 ]
 
 chunkCoordsToRender = [
@@ -25,7 +25,7 @@ def addBoundBoxToChunkCoordToRender(pointA: tuple[int, int], pointsB: tuple[int,
         for z in range(bottomLeft[1], topRight[1]):
             chunkCoordsToRender.append((x, z))
 
-addBoundBoxToChunkCoordToRender((9, 32), (17, 37))
+addBoundBoxToChunkCoordToRender((8, 24), (20, 27))
 
 def getLargestChunkIndexInChunkCoordsToRender():
     biggestIndex = -1
@@ -62,7 +62,7 @@ def renderChunks():
     chunkRenderer.renderFrame()
 
 def getChunksFromRegionFile(fileName):
-    chunks = get_chunk.read_region_file(fileName, 337, 4, -1, 7)
+    chunks = get_chunk.read_region_file(fileName, 108, 776, -1, 7)
     
     #with open("chunks.json", "w") as f:
     #    f.write(json.dumps(chunks, indent=4))
