@@ -3,13 +3,10 @@ import zlib
 import math
 import struct
 import json
-# py -m pip install "nbtlib==1.12.1"
-import nbtlib
 # py -m pip install bitarray
 from bitarray import bitarray
 
-import DillionNBT
-
+import subprocess
 
 def byteArrayToIntArrayOfNBits(byteArrayData, numBits):
     """Turns a bytearray into an array of unsigned ints, the amount of bits each int has is defined by n_bits
@@ -178,22 +175,15 @@ def decompressChunkData(compressedChunkData, compressionType):
     return uncompressedChunkData
 
 def chunkDataToNBT(chunkData):
-    # I can't load the bytearray directly into nbtlib, so I need to make it into a file first ;-; 
+    # Multi-tread the thing that calls this?
+    # I can't load the bytearray directly into nbtlib, so I need to make it into a file first ;-;
     with open("chunk.nbt", "wb") as chunkTemp:
         chunkTemp.write(chunkData)
     
-    with open("chunk.nbt", "rb") as chunkTemp:
-        nbtChunkData = nbtlib.File.from_fileobj(chunkTemp)
-        
-        try:
-            nbtChunkData = nbtChunkData[""]
-        except: pass # I guess not all of the time ¯\_(ツ)_/¯
-        
-        # for some reason the json is structured like this; so lets access that first bit to get the real data
-        # {
-        #   "": {REAL DATA HERE}
-        # }
-        return nbtChunkData
+    result = subprocess.run(["nbt-to-json-rust.exe", "--input=./chunk.nbt"], stdout=subprocess.PIPE)
+    chunkJSONString = result.stdout
+    chunkJSON = json.loads(chunkJSONString)
+    return chunkJSON
 
 def read_region_file(file_path, chunksToRead=1, startChunkIndex=0, subChunksToRead=1, startSubChunkIndex=0):
     """Read and parse a single region (.mca) file."""

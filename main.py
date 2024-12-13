@@ -98,9 +98,9 @@ def main():
     chunkRenderer.blocks = []
     chunksUnfiltered = getChunksFromRegionFile(f"./world/region/{regionFileName}")
     chunks = []
-    #chunks = chunksUnfiltered
+    chunks = chunksUnfiltered
     
-    #"""
+    """
     # Filter the chunks w/ only the correct position
     for chunk in chunksUnfiltered:
         chunkPosition = chunk[0][2]
@@ -110,7 +110,7 @@ def main():
         
         if chunkXZ in chunkCoordsToRender:
             chunks.append(chunk)
-    #"""
+    """
     
     if len(chunks) == 0: return
 

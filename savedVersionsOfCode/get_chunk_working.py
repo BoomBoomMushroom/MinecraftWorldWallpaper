@@ -84,9 +84,7 @@ def unpackLongArray_SkipTooLittle(byteArrayData, numBits):
     
     return result
 
-def experimentalGetCorrectIndices(blockStates, numberOfBlocksInPalette, discardExtraBits=True):
-    blockIndices = blockStates["data"]
-    
+def getCorrectIndices(blockIndices, numberOfBlocksInPalette, discardExtraBits=True):
     bitsNeededForIndex = max(
         4,
         math.ceil( math.log2(numberOfBlocksInPalette) )
@@ -113,50 +111,7 @@ def experimentalGetCorrectIndices(blockStates, numberOfBlocksInPalette, discardE
             #    print(len(indexBitArray), bitsNeededForIndex, getIndex, numberOfBlocksInPalette)
     
     return blockIndicesReal
-    
-    
 
-def getCorrectIndices(blockStates, numberOfBlocksInPalette):
-    return experimentalGetCorrectIndices(blockStates, numberOfBlocksInPalette)
-    
-    blockIndices = blockStates["data"]
-    
-    bitsNeededForIndex = max(
-        4,
-        math.ceil( math.log2(numberOfBlocksInPalette) )
-    ) # 4 is the minimum number of bits
-    
-    blockIndicesBytes = bytearray()
-    for blockStateIndex in blockIndices:
-        blockIndicesBytes.extend( struct.pack(">q", blockStateIndex) )
-    
-    #print(len(blockIndices), len(blockIndicesBytes))
-    
-    #blockIndicesReal = byteArrayToIntArrayOfNBits(blockIndicesBytes, bitsNeededForIndex)
-    blockIndicesReal = unpackLongArray_SkipTooLittle(blockIndicesBytes, bitsNeededForIndex)
-    
-    #print(blockIndicesReal, len(blockIndicesReal))
-    
-    numOfRealIndices = len(blockIndicesReal)
-    if numOfRealIndices != 4096:                    
-        excess = 4096 - numOfRealIndices
-        stuffRemoved = blockIndicesReal[excess:]
-        blockIndicesReal = blockIndicesReal[:excess]
-        
-        print(f"We have an excess amount of indices {excess}") #; Removed: {stuffRemoved}")
-        
-        """
-        #raise BaseException(f""
-The length of the calculated chunk data indices is not 4096! 
-Something has gone terribly wrong!
-They need to be 4096 because 16*16*16 (one sector) is 4096 block!
-Amount of chunk data indices {numOfRealIndices}; # of bits per int {bitsNeededForIndex};
-Number of bytes in converted chunk data bytearray {len(blockIndicesBytes)}; & num of bits {len(blockIndicesBytes) * 8};
-Block Palette Size {len(blockPalette)}; log_2 of Block Palette Size {math.log2(len(blockPalette))}
-"")
-"""
-    
-    return blockIndicesReal
 
 def getChunksHeaderData(regionFile):
     allChunksHeaderData = []
@@ -284,17 +239,13 @@ def read_region_file(file_path, chunksToRead=1, startChunkIndex=0, subChunksToRe
             compressedChunkData = mcaFile.read(lengthInBytes - 1)
             uncompressedChunkData = decompressChunkData(compressedChunkData, compressionType)
             
-            blockStateIndex = DillionNBT.getIndexOfKeyInNBT(uncompressedChunkData, "block_states")
-            print(blockStateIndex)
-            
-            #print(uncompressedChunkData)
-            #with open("./nbt.lw", "wb") as f:
-            #    f.write(uncompressedChunkData)
-            
-            #out = DillionNBT.get_specific_index(uncompressedChunkData, "biomes")
-            #print(out)
-            
             """
+            print(uncompressedChunkData)
+            with open("./nbt.lw", "wb") as f:
+                f.write(uncompressedChunkData)
+            """
+            
+            #"""
             nbtChunkData = chunkDataToNBT(uncompressedChunkData)
             
             #nbtChunkJson = nbtChunkData.snbt(indent=4)
@@ -330,16 +281,22 @@ def read_region_file(file_path, chunksToRead=1, startChunkIndex=0, subChunksToRe
                 
                 chunkSection = chunkSections[subChunkNumber]
                 
+                #with open("Chunk.json", "w") as f:
+                #    f.write(str(chunkSection))
+                
+                if "block_states" not in chunkSection: continue
+                
                 blockStates = chunkSection["block_states"]
                 blockPalette = blockStates["palette"]
                 blockIndicesReal = [0] * 4096 # Fill this up with the first object, because if the palette only has 1 object, then this would error because all blocks in the 16x16x16 are the same block
                 
-                print(len(blockStates["data"]))
+                #print(len(blockStates["data"]))
                 
                 numberOfBlocksInPalette = len(blockPalette)
                 if numberOfBlocksInPalette > 1:
-                    blockIndicesReal = getCorrectIndices(blockStates, numberOfBlocksInPalette-1)
+                    blockIndicesReal = getCorrectIndices(blockStates["data"], numberOfBlocksInPalette-1, isOneDotSixteenOrHigher)
                 
+                #print(blockPalette)
                 
                 chunks[-1].append([
                     blockIndicesReal,
@@ -349,7 +306,7 @@ def read_region_file(file_path, chunksToRead=1, startChunkIndex=0, subChunksToRe
                 
                 #print(position, chunkSection["Y"])
                 #break
-            """
+            #"""
             
             #break
         
