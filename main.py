@@ -62,10 +62,7 @@ def renderChunks():
     chunkRenderer.renderFrame()
 
 def getChunksFromRegionFile(fileName):
-    chunks = get_chunk.read_region_file(fileName, 108, 776, -1, 7)
-    
-    #with open("chunks.json", "w") as f:
-    #    f.write(json.dumps(chunks, indent=4))
+    chunks = get_chunk.read_region_file(fileName)
     
     return chunks
 
@@ -98,19 +95,14 @@ def main():
     chunkRenderer.blocks = []
     chunksUnfiltered = getChunksFromRegionFile(f"./world/region/{regionFileName}")
     chunks = []
-    chunks = chunksUnfiltered
+    #chunks = chunksUnfiltered
     
-    """
+    #"""
     # Filter the chunks w/ only the correct position
     for chunk in chunksUnfiltered:
-        chunkPosition = chunk[0][2]
-        chunkXZ = (math.floor(chunkPosition[0]/16), math.floor(chunkPosition[2]/16))
-        
-        print(chunkXZ, chunkCoordsToRender, chunkXZ in chunkCoordsToRender, regionFileName)
-        
-        if chunkXZ in chunkCoordsToRender:
-            chunks.append(chunk)
-    """
+        if len(chunks) > 300: break
+        chunks.append(chunk)
+    #"""
     
     if len(chunks) == 0: return
 
@@ -118,6 +110,8 @@ def main():
     print("starting to load chunks")
     loadChunks(chunks)
     print("Done loading chunks")
+
+    del chunks
 
     # Generate textures
     
@@ -150,6 +144,8 @@ def main():
 
     print(chunkRenderer.camera.position)
     #"""
+    
+    del chunkRenderer.blocks
 
     running = True
     while running:
