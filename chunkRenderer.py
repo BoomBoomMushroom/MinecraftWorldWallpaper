@@ -218,9 +218,9 @@ def getTextureImage(img_path, maxWidth=-1, maxHeight=-1, animationIndex=0):
     
     return img
 
-block_map = {}
-block_map_keys = []
-neighbor_offsets = [
+blockMap = {}
+blockMapKeys = []
+neighborOffsets = [
     (1, 0, 0),  # Right
     (-1, 0, 0), # Left
     (0, 1, 0),  # Up
@@ -243,7 +243,7 @@ faceNameToFaceIndex = {
 
 class Block:
     def __init__(self, x=0, y=0, z=0, texturePaths: dict={"all": "./texture.png"}, fullFaceArray=[False]*6):
-        global block_map
+        global blockMap
         
         self.defaultTexturePath = "./texture.png"
         
@@ -261,7 +261,16 @@ class Block:
         self.z = z
         self.texturePaths = texturePaths
         
-        block_map[(x, y, z)] = self
+        blockMap[(x, y, z)] = self
+        
+        self.neighbors = 0
+        
+        for offset in neighborOffsets:
+            newPos = (x - offset[0], y - offset[1], z - offset[2])
+            if newPos in blockMap:
+                self.neighbors += 1
+                blockMap[newPos].neighbors += 1
+        
         
         self.activeTextures = {
             "front": self.defaultTexturePath,
@@ -475,7 +484,6 @@ def loadSubChunkFromJson(subChunk):
                     blockFromPalette = blockPalette[paletteIndex]
                 except IndexError as e:
                     print(paletteIndex, blockPalette, len(blockPalette))
-                    #continue
                     raise e
                 
                 blockName = blockFromPalette["Name"]
@@ -494,8 +502,6 @@ def loadSubChunkFromJson(subChunk):
                 textures = {
                     "all": texturePath
                 }
-                
-                # 
                 
                 fullFaceArray = [True]*6
                 if blockName in specialBlocksToFullFaceArray:
@@ -519,28 +525,30 @@ def loadSubChunkFromJson(subChunk):
     return True
 
 def distributeUpdateBlockMap(blocks):
-    global block_map, block_map_keys
-    block_map = {}
+    global blockMap, blockMapKeys
+    blockMap = {}
     
     def setBlockInBlockMap(block):
-        global block_map
+        global blockMap
         block[(block.x, block.y, block.z)] = block
     
     with ThreadPoolExecutor() as executor:
         executor.map(setBlockInBlockMap, blocks)
     
-    block_map_keys = block_map.keys()
+    blockMapKeys = blockMap.keys()
 
 def getNeighborsOfBlock(block):
-    localBlockMap = block_map
-    localNeighborOffsets = neighbor_offsets
+    localBlockMap = blockMap
+    localNeighborOffsets = neighborOffsets
     
     x, y, z = block.x, block.y, block.z
-    return [
-        localBlockMap[(x + dx, y + dy, z + dz)]
-        for dx, dy, dz in localNeighborOffsets
-        if (x + dx, y + dy, z + dz) in localBlockMap
-    ]
+    neighbors = []
+    for dx, dy, dz in localNeighborOffsets:
+        neighbor = localBlockMap.get((x + dx, y + dy, z + dz))
+        if neighbor is not None:
+            neighbors.append(neighbor)
+    
+    return neighbors
 
 def processBlockNeighbors(block):
     neighbors = getNeighborsOfBlock(block)
@@ -550,24 +558,14 @@ def removeUnseenFaces(blocks):
     print("Starting to get neighbors list")
     for block in blocks:
         neighbors = processBlockNeighbors(block)[1]
-        # Do a stupid hack. assume that if we have six neighbors, we're not visible
+        # Do a simple hack. assume that if we have six neighbors, we're not visible
         if len(neighbors) >= 6:
             block.facesToRender = set()
             continue
+        else: continue
         
         block.removeFacesBasedOnNeighbors(neighbors)
     print("Done culling faces using thread pool 2")
-    
-    """
-    with ThreadPoolExecutor() as executor:
-        results = list(executor.map(processBlockNeighbors, blocks))
-        print("list of block and their neighbors done!")
-    
-    with ThreadPoolExecutor() as executor:
-        cullFaceFromNeighbors = lambda blockNeighborPair: blockNeighborPair[0].removeFacesBasedOnNeighbors(blockNeighborPair[1])
-        executor.map(cullFaceFromNeighbors, results)
-        print("Done culling faces using thread pool 2")
-    """
 
 def handleMovement(dt):
     # Handle keyboard input for camera movement
@@ -640,8 +638,8 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
         positionToCheck = (block.x, block.y + yOffset, block.z)
         if positionToCheck in alreadyCheckedPositions: break # Face/Block is already in use for another bigger face
         
-        if positionToCheck not in block_map_keys: break # Not a block, breaks mesh & we cannot continue mesh with air block
-        blockToCheck = block_map[positionToCheck]
+        if positionToCheck not in blockMapKeys: break # Not a block, breaks mesh & we cannot continue mesh with air block
+        blockToCheck = blockMap[positionToCheck]
         
         if faceName not in blockToCheck.facesToRender: break # Block doesn't have the face we do, physically cannot continue mesh
         #if ourTexture != blockToCheck.activeTextures[faceName]: break # Not the same texture, it breaks mesh
@@ -667,10 +665,10 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
                 doXLoop = False
                 break # Face/Block is already in use for another bigger face
             
-            if positionToCheck not in block_map_keys:
+            if positionToCheck not in blockMapKeys:
                 doXLoop = False
                 break # Not a block, breaks mesh & we cannot continue mesh with air block
-            blockToCheck = block_map[positionToCheck]
+            blockToCheck = blockMap[positionToCheck]
             
             if faceName not in blockToCheck.facesToRender:
                 doXLoop = False
@@ -695,7 +693,7 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
     
     for xOff in range(0, xOffset+1):
         for yOff in range(0, yOffset+1):
-            blockToGetInfo: Block = block_map[(block.x + xOff, block.y + yOff, block.z)]
+            blockToGetInfo: Block = blockMap[(block.x + xOff, block.y + yOff, block.z)]
             textureIndex = uniqueTextures.index(blockToGetInfo.activeTextures[faceName])
             newFace["texturesList"].append(textureIndex)
     
@@ -710,8 +708,8 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
         positionToCheck = (block.x, block.y + yOffset, block.z)
         if positionToCheck in alreadyCheckedPositions: break # Face/Block is already in use for another bigger face
         
-        if positionToCheck not in block_map_keys: break # Not a block, breaks mesh & we cannot continue mesh with air block
-        blockToCheck = block_map[positionToCheck]
+        if positionToCheck not in blockMapKeys: break # Not a block, breaks mesh & we cannot continue mesh with air block
+        blockToCheck = blockMap[positionToCheck]
         
         if faceName not in blockToCheck.facesToRender: break # Block doesn't have the face we do, physically cannot continue mesh
         #if ourTexture != blockToCheck.activeTextures[faceName]: break # Not the same texture, it breaks mesh
@@ -736,10 +734,10 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
                 doXLoop = False
                 break # Face/Block is already in use for another bigger face
             
-            if positionToCheck not in block_map_keys:
+            if positionToCheck not in blockMapKeys:
                 doXLoop = False
                 break # Not a block, breaks mesh & we cannot continue mesh with air block
-            blockToCheck = block_map[positionToCheck]
+            blockToCheck = blockMap[positionToCheck]
             
             if faceName not in blockToCheck.facesToRender:
                 doXLoop = False
@@ -769,7 +767,7 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
     
     for zOff in range(0, zOffset+1):
         for yOff in range(0, yOffset+1):
-            blockToGetInfo: Block = block_map[(block.x, block.y + yOff, block.z + zOff)]
+            blockToGetInfo: Block = blockMap[(block.x, block.y + yOff, block.z + zOff)]
             textureIndex = uniqueTextures.index(blockToGetInfo.activeTextures[faceName])
             newFace["texturesList"].append(textureIndex)
     
@@ -784,8 +782,8 @@ def greedyMeshTopBottom(block, faceName, alreadyCheckedFaceToPosition):
         positionToCheck = (block.x + xOffset, block.y, block.z)
         if positionToCheck in alreadyCheckedPositions: break # Face/Block is already in use for another bigger face
         
-        if positionToCheck not in block_map_keys: break # Not a block, breaks mesh & we cannot continue mesh with air block
-        blockToCheck = block_map[positionToCheck]
+        if positionToCheck not in blockMapKeys: break # Not a block, breaks mesh & we cannot continue mesh with air block
+        blockToCheck = blockMap[positionToCheck]
         
         if faceName not in blockToCheck.facesToRender: break # Block doesn't have the face we do, physically cannot continue mesh
         #if ourTexture != blockToCheck.activeTextures[faceName]: break # Not the same texture, it breaks mesh
@@ -810,10 +808,10 @@ def greedyMeshTopBottom(block, faceName, alreadyCheckedFaceToPosition):
                 doXLoop = False
                 break # Face/Block is already in use for another bigger face
             
-            if positionToCheck not in block_map_keys:
+            if positionToCheck not in blockMapKeys:
                 doXLoop = False
                 break # Not a block, breaks mesh & we cannot continue mesh with air block
-            blockToCheck = block_map[positionToCheck]
+            blockToCheck = blockMap[positionToCheck]
             
             if faceName not in blockToCheck.facesToRender:
                 doXLoop = False
@@ -838,7 +836,7 @@ def greedyMeshTopBottom(block, faceName, alreadyCheckedFaceToPosition):
     
     for xOff in range(0, xOffset+1):
         for zOff in range(0, zOffset+1):
-            blockToGetInfo: Block = block_map[(block.x + xOff, block.y, block.z + zOff)]
+            blockToGetInfo: Block = blockMap[(block.x + xOff, block.y, block.z + zOff)]
             textureIndex = uniqueTextures.index(blockToGetInfo.activeTextures[faceName])
             newFace["texturesList"].append(textureIndex)
     

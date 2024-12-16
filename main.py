@@ -124,7 +124,7 @@ def main():
     print("starting to cull unseen faces")
     cullFacesWithNaiveMeshing()
     print("done removing unseen faces")
-    print(len(chunkRenderer.blocks))
+    print(f"Number of blocks remaining: {len(chunkRenderer.blocks)}")
 
 
     # TODO: Idea to speed up the greedy mesher
