@@ -91,6 +91,7 @@ def cullFacesWithNaiveMeshing():
 def doGreedyMesher():
     return chunkRenderer.distributeGreedyMeshAlgorithm()
 
+# TODO: I need to cut down on memory usage!
 def main():
     chunkRenderer.blocks = []
     chunksUnfiltered = getChunksFromRegionFile(f"./world/region/{regionFileName}")
