@@ -86,7 +86,9 @@ def generateAndApplyTextureArray():
     return textureArray
 
 def cullFacesWithNaiveMeshing():
-    chunkRenderer.removeUnseenFaces(chunkRenderer.blocks)
+    #chunkRenderer.removeUnseenFaces(chunkRenderer.blocks)
+    for chunkKey in chunkRenderer.chunks.keys():
+        chunkRenderer.removeUnseenFaces(chunkRenderer.chunks[chunkKey])
 
 def doGreedyMesher():
     return chunkRenderer.distributeGreedyMeshAlgorithm()
@@ -106,13 +108,13 @@ def main():
         #    offset -= 1
         #    continue
         
-        if len(chunks) >= 32 * 1: break
+        if len(chunks) >= 32 * 8: break
         
         chunks.append(chunk)
     #"""
     
     if len(chunks) == 0: return
-
+    del chunksUnfiltered
 
     print("starting to load chunks")
     loadChunks(chunks)
@@ -144,7 +146,8 @@ def main():
     print(f"Number of faces from greedy meshing algorithm: {facesLeftFromGreedyMeshing}")
 
 
-    firstBlock = chunkRenderer.blocks[0]
+    #firstBlock = chunkRenderer.blocks[0]
+    firstBlock = chunkRenderer.chunks[list(chunkRenderer.chunks.keys())[0]][0]
     chunkRenderer.camera.position.x = firstBlock.x + 5
     chunkRenderer.camera.position.y = firstBlock.y + 1
     chunkRenderer.camera.position.z = firstBlock.z + 5
@@ -153,6 +156,7 @@ def main():
     #"""
     
     del chunkRenderer.blocks
+    del chunkRenderer.chunks
 
     running = True
     while running:

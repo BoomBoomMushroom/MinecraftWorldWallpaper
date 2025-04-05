@@ -467,12 +467,19 @@ blocks = [
     Block(0, 0, 0, {"all": "./missing_texture.png"}, 0b111111),
 ]
 
+chunks = {}
+
 def loadSubChunkFromJson(subChunk):
     global blocks
     
     blocksAsIndices = subChunk[0] # 1 Sub Chunk is 16x16x16
     blockPalette = subChunk[1]
     startPosition = subChunk[2]
+    
+    chunkPos = [math.floor(startPosition[0] / 16), math.floor(startPosition[2] / 16)]
+    chunkPosKey = f"{chunkPos[0]},{chunkPos[1]}"
+    if chunkPosKey not in list(chunks.keys()):
+        chunks[chunkPosKey] = []
     
     for y in range(16):
         for z in range(16):
@@ -520,7 +527,8 @@ def loadSubChunkFromJson(subChunk):
                     textures,
                     fullFaces
                 )
-                blocks.append(newBlock)
+                chunks[chunkPosKey].append(newBlock)
+                #blocks.append(newBlock)
     
     return True
 
@@ -881,8 +889,9 @@ def greedyMeshBlocks(blocks: list[Block], faceName: Literal["None", "top", "bott
     return faces
 
 def executeGreedyMeshOnBlock(specificFace):
-    global blocks
-    faces = greedyMeshBlocks(blocks, specificFace)
+    faces = []
+    for chunkKey in list(chunks.keys()):
+        faces.extend( greedyMeshBlocks(chunks[chunkKey], specificFace) )
     return faces
 
 def distributeGreedyMeshAlgorithm():
