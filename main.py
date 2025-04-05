@@ -1,4 +1,4 @@
-import get_chunk
+import chunkReader
 import chunkRenderer
 import math
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
@@ -26,6 +26,7 @@ def addBoundBoxToChunkCoordToRender(pointA: tuple[int, int], pointsB: tuple[int,
             chunkCoordsToRender.append((x, z))
 
 addBoundBoxToChunkCoordToRender((8, 24), (20, 27))
+
 
 def getLargestChunkIndexInChunkCoordsToRender():
     biggestIndex = -1
@@ -61,15 +62,14 @@ for chunkCoord in chunkCoordsToRender:
 def renderChunks():
     chunkRenderer.renderFrame()
 
-def getChunksFromRegionFile(fileName):
-    chunks = get_chunk.read_region_file(fileName)
-    
-    return chunks
-
 def loadChunks(chunks):
     #"""
     for chunk in chunks:
         for subChunk in chunk:
+            
+            # only get subchunks above a certain level
+            if subChunk[2][1] < 50 / 16: continue
+            
             chunkRenderer.loadSubChunkFromJson(subChunk)
     #"""
     
@@ -94,14 +94,20 @@ def doGreedyMesher():
 # TODO: I need to cut down on memory usage!
 def main():
     chunkRenderer.blocks = []
-    chunksUnfiltered = getChunksFromRegionFile(f"./world/region/{regionFileName}")
+    chunksUnfiltered = chunkReader.read_region_file(f"./world/region/{regionFileName}", forceNoCache=False)
     chunks = []
     #chunks = chunksUnfiltered
     
     #"""
     # Filter the chunks w/ only the correct position
+    #offset = 3 * 32
     for chunk in chunksUnfiltered:
-        if len(chunks) > 300: break
+        #if offset > 0:
+        #    offset -= 1
+        #    continue
+        
+        if len(chunks) >= 32 * 1: break
+        
         chunks.append(chunk)
     #"""
     

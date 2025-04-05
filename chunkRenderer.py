@@ -191,8 +191,6 @@ def generateTextureArray(ctx: moderngl.Context, texturePaths=[], textureWidth=16
     for texturePath in texturePaths:
         textureImage = getTextureImage(texturePath, textureWidth, textureHeight, 0)
         
-        #print()
-        
         arrayData += textureImage.tobytes()
     
     textureArray.write(arrayData)
@@ -218,6 +216,7 @@ def getTextureImage(img_path, maxWidth=-1, maxHeight=-1, animationIndex=0):
     
     return img
 
+defaultTexturePath = "./missing_texture.png"
 blockMap = {}
 blockMapKeys = []
 neighborOffsets = [
@@ -242,19 +241,11 @@ faceNameToFaceIndex = {
 }
 
 class Block:
-    def __init__(self, x=0, y=0, z=0, texturePaths: dict={"all": "./texture.png"}, fullFaceArray=[False]*6):
+    def __init__(self, x=0, y=0, z=0, texturePaths: dict={"all": "./missing_texture.png"}, fullFaces=0b000000):
         global blockMap
         
-        self.defaultTexturePath = "./texture.png"
-        
-        self.fullFacesOfNeighbor = {
-            "front": fullFaceArray[0],
-            "back": fullFaceArray[1],
-            "top": fullFaceArray[2],
-            "bottom": fullFaceArray[3],
-            "left": fullFaceArray[4],
-            "right": fullFaceArray[5],
-        }
+        #front, back, top, bottom, left, right
+        self.fullFaces = fullFaces
         
         self.x = x
         self.y = y
@@ -273,17 +264,27 @@ class Block:
         
         
         self.activeTextures = {
-            "front": self.defaultTexturePath,
-            "back": self.defaultTexturePath,
-            "top": self.defaultTexturePath,
-            "bottom": self.defaultTexturePath,
-            "left": self.defaultTexturePath,
-            "right": self.defaultTexturePath,
+            "front": defaultTexturePath,
+            "back": defaultTexturePath,
+            "top": defaultTexturePath,
+            "bottom": defaultTexturePath,
+            "left": defaultTexturePath,
+            "right": defaultTexturePath,
         }
         self.facesToRender = set()
         self.restoreFacesToRender()
         self.updateActiveTextures()
         
+    def isFaceFull(self, faceName):
+        mask = 0b000000
+        if faceName == "front":  mask = 0b100000
+        if faceName == "back":   mask = 0b010000
+        if faceName == "top":    mask = 0b001000
+        if faceName == "bottom": mask = 0b000100
+        if faceName == "left":   mask = 0b000010
+        if faceName == "right":  mask = 0b000001
+        
+        return (self.fullFaces & mask) != 0
     
     def updateActiveTextures(self):
         global uniqueTextures
@@ -347,25 +348,23 @@ class Block:
             elif numberOfDiffsInPosition > 1:
                 continue # None of our faces are touching this block, so we can safely skip it
             
-            fullFacesOfNeighbor = neighbor.fullFacesOfNeighbor
-            
             # Make the full faces of neighbors opposite of what we're removing
             # because if our right face is touching, then we want to see if the LEFT face is
             # solid, not their right face
             
-            if diffX == 1 and fullFacesOfNeighbor["left"]: # Block on our Right
+            if diffX == 1 and neighbor.isFaceFull("left"): # Block on our Right
                 self.removeFace("right")
-            if diffX == -1 and fullFacesOfNeighbor["right"]: # Block on our Left
+            if diffX == -1 and neighbor.isFaceFull("right"): # Block on our Left
                 self.removeFace("left")
             
-            if diffY == 1 and fullFacesOfNeighbor["bottom"]: # Block on Top
+            if diffY == 1 and neighbor.isFaceFull("bottom"): # Block on Top
                 self.removeFace("top")
-            if diffY == -1 and fullFacesOfNeighbor["top"]: # Block on our Bottom
+            if diffY == -1 and neighbor.isFaceFull("top"): # Block on our Bottom
                 self.removeFace("bottom")
             
-            if diffZ == 1 and fullFacesOfNeighbor["front"]: # Block on Front
+            if diffZ == 1 and neighbor.isFaceFull("front"): # Block on Front
                 self.removeFace("back")
-            if diffZ == -1 and fullFacesOfNeighbor["back"]: # Block on our Back
+            if diffZ == -1 and neighbor.isFaceFull("back"): # Block on our Back
                 self.removeFace("front")
         
         #self.generateRenderingBuffersAndArrays() # Should happen in `removeFace`
@@ -452,8 +451,8 @@ def getFilesStartingWithString(path, string):
     
     return []
 
-specialBlocksToFullFaceArray = {
-    "air": [False]*6,
+specialBlocksToFullFaces = {
+    "air": 0b000000,
 }
 blockTextureOverride = {
     "lava": "lava_still.png"
@@ -465,7 +464,7 @@ blocksToSkip = [
 ]
 
 blocks = [
-    Block(0, 0, 0, {"all": "./texture.png"}, [True]*6),
+    Block(0, 0, 0, {"all": "./missing_texture.png"}, 0b111111),
 ]
 
 def loadSubChunkFromJson(subChunk):
@@ -503,9 +502,9 @@ def loadSubChunkFromJson(subChunk):
                     "all": texturePath
                 }
                 
-                fullFaceArray = [True]*6
-                if blockName in specialBlocksToFullFaceArray:
-                    fullFaceArray = specialBlocksToFullFaceArray[blockName]
+                fullFaces = 0b111111
+                if blockName in specialBlocksToFullFaces:
+                    fullFaces = specialBlocksToFullFaces[blockName]
                 
                 position = [
                     x + startPosition[0],
@@ -513,12 +512,13 @@ def loadSubChunkFromJson(subChunk):
                     z + startPosition[2],
                 ]
                 
+                # Maybe we can prematurely do the removing of nearby faces here to save time?
                 newBlock = Block(
                     position[0],
                     position[1],
                     position[2],
                     textures,
-                    fullFaceArray
+                    fullFaces
                 )
                 blocks.append(newBlock)
     
@@ -858,7 +858,6 @@ def greedyMeshBlocks(blocks: list[Block], faceName: Literal["None", "top", "bott
     
         alreadyCheckedPositions = alreadyCheckedFaceToPosition[faceName]
         if (block.x, block.y, block.z) in alreadyCheckedPositions: continue
-    
     
         newFace = None
         args = (block, faceName, alreadyCheckedFaceToPosition)

@@ -3,6 +3,7 @@ import json
 # py -m pip install bitarray
 from bitarray import bitarray
 from concurrent.futures import ThreadPoolExecutor
+import os
 
 import subprocess
 
@@ -11,20 +12,6 @@ def getCorrectIndices(blockIndices, numberOfBlocksInPalette, discardExtraBits=Tr
         4,
         numberOfBlocksInPalette.bit_length()
     ) # 4 is the minimum number of bits
-    
-    #print(struct.pack("q", 0xFA))  # b'\xfa\x00\x00\x00\x00\x00\x00\x00'
-    #print(struct.pack(">q", 0xFA)) # b'\x00\x00\x00\x00\x00\x00\x00\xfa'
-    
-    def bitArrayToIndicesOld(indexBitArray, bitsNeededForIndex):
-        blockIndicesReal = []
-        while len(indexBitArray) >= bitsNeededForIndex:
-            getIndexBits = indexBitArray[-bitsNeededForIndex:]
-            indexBitArray = indexBitArray[:-bitsNeededForIndex]
-            
-            getIndex = int(getIndexBits.to01(), 2)
-            blockIndicesReal.append(getIndex)
-        
-        return blockIndicesReal
     
     def bitArrayToIndices(indexBitArray, bitsNeededForIndex):
         bitArrayLength = len(indexBitArray)
@@ -92,9 +79,22 @@ def get_subchunks_from_chunk(chunk):
     
     return subchunks
 
-def read_region_file(file_path):
+def read_region_file(file_path, forceNoCache=False):
     """Read and parse a single region (.mca) file."""
     # https://minecraft.wiki/w/Region_file_format#Structure
+    
+    chunks = []
+    
+    decodedFileName = file_path.split(".")
+    decodedFileName.pop()
+    decodedFileName = ".".join(decodedFileName) + ".json"
+    
+    if os.path.exists(decodedFileName) and forceNoCache == False:
+        print("A pre-decoded file exists... going to use it")
+        with open(decodedFileName, "r") as f:
+            chunks = json.load(f)
+            return chunks
+    
     print(f"Reading chunk file: {file_path}")
     
     regionFileJsonResult = subprocess.run(["nbt-to-json-rust.exe", f"--input={file_path}", "--type=REGION"], stdout=subprocess.PIPE)
@@ -102,13 +102,15 @@ def read_region_file(file_path):
     regionFileJson = json.loads(regionFileJsonString)
     regionFileChunks = regionFileJson.values()
     
-    chunks = []
-    
     with ThreadPoolExecutor() as executor:
         chunks = list(executor.map(get_subchunks_from_chunk, regionFileChunks))
     
+    # Cache this file
+    with open(decodedFileName, "w") as f:
+        f.write( json.dumps(chunks) )
+    
     """
-    for chunk in regionFileChunks:        
+    for chunk in regionFileChunks:
         subchunks = load_chunk(chunk)
         chunks.append(subchunks)
     """
