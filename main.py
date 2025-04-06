@@ -74,9 +74,10 @@ def loadChunks(chunks):
     #"""
     
     """
+    allSubChunks = [subChunk for chunk in chunks for subChunk in chunk]
     with ThreadPoolExecutor() as executor:
-        allSubChunks = [subChunk for chunk in chunks for subChunk in chunk]
         executor.map(chunkRenderer.loadSubChunkFromJson, allSubChunks)
+    del allSubChunks
     """ 
     
 def generateAndApplyTextureArray():
@@ -145,22 +146,42 @@ def main():
     facesLeftFromGreedyMeshing = doGreedyMesher()
     print(f"Number of faces from greedy meshing algorithm: {facesLeftFromGreedyMeshing}")
 
-
     #firstBlock = chunkRenderer.blocks[0]
     firstBlock = chunkRenderer.chunks[list(chunkRenderer.chunks.keys())[0]][0]
-    chunkRenderer.camera.position.x = firstBlock.x + 5
-    chunkRenderer.camera.position.y = firstBlock.y + 1
-    chunkRenderer.camera.position.z = firstBlock.z + 5
+    chunkRenderer.camera.position.x = firstBlock["x"] + 5
+    chunkRenderer.camera.position.y = firstBlock["y"] + 1
+    chunkRenderer.camera.position.z = firstBlock["z"] + 5
 
     print(chunkRenderer.camera.position)
     #"""
     
-    del chunkRenderer.blocks
+    print("Cleaning up memory...")
     del chunkRenderer.chunks
+    del chunkRenderer.blockMap
+    del chunkRenderer.blockMapKeys
+    del chunkRenderer.uniqueTextures
+    del chunkRenderer.textureCache
+    del chunkRenderer.vertex_shader
+    del chunkRenderer.fragment_shader
+    
+    del chunkRenderer.specialBlocksToFullFaces
+    del chunkRenderer.blockTextureOverride
+    del chunkRenderer.blockTextureOverrideKeys
+    del chunkRenderer.blocksToSkip
+    del chunkRenderer.faceNameToFaceIndex
+    del chunkRenderer.neighborOffsets
+    del chunkRenderer.defaultTexturePath
+    print("Done cleaning up memory")
+
+    didDelAllInstanceData = False
 
     running = True
     while running:
         running = chunkRenderer.renderFrame()
+        
+        if didDelAllInstanceData == False:
+            del chunkRenderer.allInstanceData
+            didDelAllInstanceData = True
 
 
 with cProfile.Profile() as pr:

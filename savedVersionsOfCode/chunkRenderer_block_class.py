@@ -11,7 +11,6 @@ from pathlib import Path
 import functools
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
-from memory_profiler import profile
 
 # Initialize pygame and create window
 pygame.init()
@@ -218,17 +217,16 @@ def getTextureImage(img_path, maxWidth=-1, maxHeight=-1, animationIndex=0):
     return img
 
 defaultTexturePath = "./missing_texture.png"
-# Possibly do this on a per-chunk basis so we can purge it after loading a chunk
 blockMap = {}
 blockMapKeys = []
-neighborOffsets = (
+neighborOffsets = [
     (1, 0, 0),  # Right
     (-1, 0, 0), # Left
     (0, 1, 0),  # Up
     (0, -1, 0), # Down
     (0, 0, 1),  # Forward
     (0, 0, -1)  # Backward
-)
+]
 
 # X - (neg x is right)
 # Y - (neg y is down)
@@ -242,150 +240,135 @@ faceNameToFaceIndex = {
     "right":    5,
 }
 
-def isFaceFull(x, y, z, faceName):
-    self = blockMap[(x, y, z)]
-    
-    mask = 0b000000
-    if faceName == "front":  mask = 0b100000
-    if faceName == "back":   mask = 0b010000
-    if faceName == "top":    mask = 0b001000
-    if faceName == "bottom": mask = 0b000100
-    if faceName == "left":   mask = 0b000010
-    if faceName == "right":  mask = 0b000001
-    
-    return (self["fullFaces"] & mask) != 0
-
-def updateActiveTextures(x, y, z):
-    global uniqueTextures
-    self = blockMap[(x, y, z)]
-    
-    if "all" in self["texturePaths"]:
-        theAllTexture = self["texturePaths"]["all"]
-        self["activeTextures"] = {
-            "front": theAllTexture,
-            "back": theAllTexture,
-            "top": theAllTexture,
-            "bottom": theAllTexture,
-            "left": theAllTexture,
-            "right": theAllTexture,
-        }
+class Block:
+    def __init__(self, x=0, y=0, z=0, texturePaths: dict={"all": "./missing_texture.png"}, fullFaces=0b000000):
+        global blockMap
         
-        if theAllTexture not in uniqueTextures: uniqueTextures.append(theAllTexture)
+        #front, back, top, bottom, left, right
+        self.fullFaces = fullFaces
+        
+        self.x = x
+        self.y = y
+        self.z = z
+        self.texturePaths = texturePaths
         
         blockMap[(x, y, z)] = self
-        return
-    
-    for face in self["facesToRender"]:
-        if face in self.texturePaths:
-            texturePath = self.texturePaths[face]
-            self["activeTextures"][face] = texturePath
-            
-            if texturePath not in uniqueTextures: uniqueTextures.append(texturePath)
-
-def restoreFacesToRender(x, y, z):
-    self = blockMap[(x, y, z)]
-    
-    self["facesToRender"] = {
-        "front",
-        "back",
-        "top",
-        "bottom",
-        "left",
-        "right",
-    }
-    
-    blockMap[(x, y, z)] = self
-
-def removeFace(x, y, z, faceName):
-    self = blockMap[(x, y, z)]
-    self["facesToRender"].discard(faceName)
-    blockMap[(x, y, z)] = self
-
-def removeFacesBasedOnNeighbors(x, y, z, neighbors: list[Block]):
-    self = blockMap[(x, y, z)]
-    if type(neighbors) == Block: neighbors = [neighbors]
-    self["restoreFacesToRender"]()
-    
-    for neighbor in neighbors:
-        #if self.uuid == neighbor.uuid: continue
         
-        numberOfDiffsInPosition = 0
-        diffX = neighbor["x"] - self["x"]
-        diffY = neighbor["y"] - self["y"]
-        diffZ = neighbor["z"] - self["z"]
+        self.neighbors = 0
         
-        if diffX != 0: numberOfDiffsInPosition += 1
-        if diffY != 0: numberOfDiffsInPosition += 1
-        if diffZ != 0: numberOfDiffsInPosition += 1
+        for offset in neighborOffsets:
+            newPos = (x - offset[0], y - offset[1], z - offset[2])
+            if newPos in blockMap:
+                self.neighbors += 1
+                blockMap[newPos].neighbors += 1
         
-        #if (diffX*diffX + diffY*diffY + diffZ*diffZ) > 2**2:
-        #    continue
         
-        if numberOfDiffsInPosition == 0:
-            print(self["x"], self["y"], self["z"], neighbor["x"], neighbor["y"], neighbor["z"])
-            raise RuntimeError("Hey! There are two blocks in the same space! This is not allowed, fix it?")
-        elif numberOfDiffsInPosition > 1:
-            continue # None of our faces are touching this block, so we can safely skip it
-        
-        # Make the full faces of neighbors opposite of what we're removing
-        # because if our right face is touching, then we want to see if the LEFT face is
-        # solid, not their right face
-        
-        if diffX == 1 and neighbor["isFaceFull"]("left"): # Block on our Right
-            self["removeFace"]("right")
-        if diffX == -1 and neighbor["isFaceFull"]("right"): # Block on our Left
-            self["removeFace"]("left")
-        
-        if diffY == 1 and neighbor["isFaceFull"]("bottom"): # Block on Top
-            self["removeFace"]("top")
-        if diffY == -1 and neighbor["isFaceFull"]("top"): # Block on our Bottom
-            self["removeFace"]("bottom")
-        
-        if diffZ == 1 and neighbor["isFaceFull"]("front"): # Block on Front
-            self["removeFace"]("back")
-        if diffZ == -1 and neighbor["isFaceFull"]("back"): # Block on our Back
-            self["removeFace"]("front")
-    
-    #self.generateRenderingBuffersAndArrays() # Should happen in `removeFace`
-    blockMap[(x, y, z)] = self
-
-def Block(x=0, y=0, z=0, texturePaths: dict={"all": "./missing_texture.png"}, fullFaces=0b000000):
-    out = {
-        "fullFaces": fullFaces,
-        "x": x,
-        "y": y,
-        "z": z,
-        "texturePaths": texturePaths,
-        "neighbors": 0,
-        "activeTextures": {
+        self.activeTextures = {
             "front": defaultTexturePath,
             "back": defaultTexturePath,
             "top": defaultTexturePath,
             "bottom": defaultTexturePath,
             "left": defaultTexturePath,
             "right": defaultTexturePath,
-        },
-    }
-    
-    out["isFaceFull"] = lambda faceName: isFaceFull(x, y, z, faceName)
-    out["updateActiveTextures"] = lambda: updateActiveTextures(x, y, z)
-    out["restoreFacesToRender"] = lambda: restoreFacesToRender(x, y, z)
-    out["removeFace"] = lambda faceName: removeFace(x, y, z, faceName)
-    out["removeFacesBasedOnNeighbors"] = lambda neighbors: removeFacesBasedOnNeighbors(x, y, z, neighbors)
-    
-    for offset in neighborOffsets:
-            newPos = (x - offset[0], y - offset[1], z - offset[2])
-            if newPos in blockMap:
-                out["neighbors"] += 1
-                blockMap[newPos]["neighbors"] += 1
-    
-    blockMap[(x, y, z)] = out
-    
-    out["facesToRender"] = set()
-    out["restoreFacesToRender"]()
-    out["updateActiveTextures"]()
+        }
+        self.facesToRender = set()
+        self.restoreFacesToRender()
+        self.updateActiveTextures()
         
-    return out
+    def isFaceFull(self, faceName):
+        mask = 0b000000
+        if faceName == "front":  mask = 0b100000
+        if faceName == "back":   mask = 0b010000
+        if faceName == "top":    mask = 0b001000
+        if faceName == "bottom": mask = 0b000100
+        if faceName == "left":   mask = 0b000010
+        if faceName == "right":  mask = 0b000001
+        
+        return (self.fullFaces & mask) != 0
+    
+    def updateActiveTextures(self):
+        global uniqueTextures
+        
+        if "all" in self.texturePaths:
+            theAllTexture = self.texturePaths["all"]
+            self.activeTextures = {
+                "front": theAllTexture,
+                "back": theAllTexture,
+                "top": theAllTexture,
+                "bottom": theAllTexture,
+                "left": theAllTexture,
+                "right": theAllTexture,
+            }
+            
+            if theAllTexture not in uniqueTextures: uniqueTextures.append(theAllTexture)
+            return
+        
+        for face in self.facesToRender:
+            if face in self.texturePaths:
+                texturePath = self.texturePaths[face]
+                self.activeTextures[face] = texturePath
+                
+                if texturePath not in uniqueTextures: uniqueTextures.append(texturePath)
+
+    def restoreFacesToRender(self):
+        self.facesToRender = {
+            "front",
+            "back",
+            "top",
+            "bottom",
+            "left",
+            "right",
+        }
+
+    def removeFace(self, faceName):
+        self.facesToRender.discard(faceName)
+    
+    def removeFacesBasedOnNeighbors(self, neighbors: list[Block]):
+        if type(neighbors) == Block: neighbors = [neighbors]
+        self.restoreFacesToRender()
+        
+        for neighbor in neighbors:
+            #if self.uuid == neighbor.uuid: continue
+            
+            numberOfDiffsInPosition = 0
+            diffX = neighbor.x - self.x
+            diffY = neighbor.y - self.y
+            diffZ = neighbor.z - self.z
+            
+            if diffX != 0: numberOfDiffsInPosition += 1
+            if diffY != 0: numberOfDiffsInPosition += 1
+            if diffZ != 0: numberOfDiffsInPosition += 1
+            
+            #if (diffX*diffX + diffY*diffY + diffZ*diffZ) > 2**2:
+            #    continue
+            
+            if numberOfDiffsInPosition == 0:
+                print(self.x, self.y, self.z, neighbor.x, neighbor.y, neighbor.z)
+                raise RuntimeError("Hey! There are two blocks in the same space! This is not allowed, fix it?")
+            elif numberOfDiffsInPosition > 1:
+                continue # None of our faces are touching this block, so we can safely skip it
+            
+            # Make the full faces of neighbors opposite of what we're removing
+            # because if our right face is touching, then we want to see if the LEFT face is
+            # solid, not their right face
+            
+            if diffX == 1 and neighbor.isFaceFull("left"): # Block on our Right
+                self.removeFace("right")
+            if diffX == -1 and neighbor.isFaceFull("right"): # Block on our Left
+                self.removeFace("left")
+            
+            if diffY == 1 and neighbor.isFaceFull("bottom"): # Block on Top
+                self.removeFace("top")
+            if diffY == -1 and neighbor.isFaceFull("top"): # Block on our Bottom
+                self.removeFace("bottom")
+            
+            if diffZ == 1 and neighbor.isFaceFull("front"): # Block on Front
+                self.removeFace("back")
+            if diffZ == -1 and neighbor.isFaceFull("back"): # Block on our Back
+                self.removeFace("front")
+        
+        #self.generateRenderingBuffersAndArrays() # Should happen in `removeFace`
+
 
 # Camera class
 class Camera:
@@ -474,15 +457,21 @@ specialBlocksToFullFaces = {
 blockTextureOverride = {
     "lava": "lava_still.png"
 }
-blockTextureOverrideKeys = tuple(blockTextureOverride.keys())
+blockTextureOverrideKeys = blockTextureOverride.keys()
 
-blocksToSkip = (
+blocksToSkip = [
     "air",
-)
+]
+
+blocks = [
+    Block(0, 0, 0, {"all": "./missing_texture.png"}, 0b111111),
+]
 
 chunks = {}
 
 def loadSubChunkFromJson(subChunk):
+    global blocks
+    
     blocksAsIndices = subChunk[0] # 1 Sub Chunk is 16x16x16
     blockPalette = subChunk[1]
     startPosition = subChunk[2]
@@ -524,11 +513,11 @@ def loadSubChunkFromJson(subChunk):
                 if blockName in specialBlocksToFullFaces:
                     fullFaces = specialBlocksToFullFaces[blockName]
                 
-                position = (
+                position = [
                     x + startPosition[0],
                     y + startPosition[1],
                     z + startPosition[2],
-                )
+                ]
                 
                 # Maybe we can prematurely do the removing of nearby faces here to save time?
                 newBlock = Block(
@@ -539,6 +528,7 @@ def loadSubChunkFromJson(subChunk):
                     fullFaces
                 )
                 chunks[chunkPosKey].append(newBlock)
+                #blocks.append(newBlock)
     
     return True
 
@@ -548,7 +538,7 @@ def distributeUpdateBlockMap(blocks):
     
     def setBlockInBlockMap(block):
         global blockMap
-        block[(block["x"], block["y"], block["z"])] = block
+        block[(block.x, block.y, block.z)] = block
     
     with ThreadPoolExecutor() as executor:
         executor.map(setBlockInBlockMap, blocks)
@@ -559,7 +549,7 @@ def getNeighborsOfBlock(block):
     localBlockMap = blockMap
     localNeighborOffsets = neighborOffsets
     
-    x, y, z = block["x"], block["y"], block["z"]
+    x, y, z = block.x, block.y, block.z
     neighbors = []
     for dx, dy, dz in localNeighborOffsets:
         neighbor = localBlockMap.get((x + dx, y + dy, z + dz))
@@ -578,7 +568,7 @@ def removeUnseenFaces(blocks):
         neighbors = processBlockNeighbors(block)[1]
         # Do a simple hack. assume that if we have six neighbors, we're not visible
         if len(neighbors) >= 6:
-            block["facesToRender"] = set()
+            block.facesToRender = set()
             continue
         else: continue
         
@@ -653,14 +643,14 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
     yOffset = 0
     while True:
         yOffset += 1
-        positionToCheck = (block["x"], block["y"] + yOffset, block["z"])
+        positionToCheck = (block.x, block.y + yOffset, block.z)
         if positionToCheck in alreadyCheckedPositions: break # Face/Block is already in use for another bigger face
         
         if positionToCheck not in blockMapKeys: break # Not a block, breaks mesh & we cannot continue mesh with air block
         blockToCheck = blockMap[positionToCheck]
         
-        if faceName not in blockToCheck["facesToRender"]: break # Block doesn't have the face we do, physically cannot continue mesh
-        #if ourTexture != blockToCheck["activeTextures"][faceName]: break # Not the same texture, it breaks mesh
+        if faceName not in blockToCheck.facesToRender: break # Block doesn't have the face we do, physically cannot continue mesh
+        #if ourTexture != blockToCheck.activeTextures[faceName]: break # Not the same texture, it breaks mesh
         # The face we're checking is active in both blocks
         
         alreadyCheckedFaceToPosition[faceName].append(positionToCheck)
@@ -678,7 +668,7 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
         queueAlreadyChecked = []
         
         for y in range(0, yOffset+1):
-            positionToCheck = (block["x"] + xOffset, block["y"] + y, block["z"])
+            positionToCheck = (block.x + xOffset, block.y + y, block.z)
             if positionToCheck in alreadyCheckedPositions:
                 doXLoop = False
                 break # Face/Block is already in use for another bigger face
@@ -688,7 +678,7 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
                 break # Not a block, breaks mesh & we cannot continue mesh with air block
             blockToCheck = blockMap[positionToCheck]
             
-            if faceName not in blockToCheck["facesToRender"]:
+            if faceName not in blockToCheck.facesToRender:
                 doXLoop = False
                 break # Block doesn't have the face we do, physically cannot continue mesh
             # The face we're checking is active in both blocks
@@ -703,7 +693,7 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
     xOffset -= 1
     
     newFace = {
-        "position": [block["x"], block["y"], block["z"]],
+        "position": [block.x, block.y, block.z],
         "rotation": faceNameToFaceIndex[faceName],
         "scale": [1 + xOffset, 1 + yOffset],
         "texturesList": []
@@ -711,8 +701,8 @@ def greedyMeshFrontBack(block, faceName, alreadyCheckedFaceToPosition):
     
     for xOff in range(0, xOffset+1):
         for yOff in range(0, yOffset+1):
-            blockToGetInfo: Block = blockMap[(block["x"] + xOff, block["y"] + yOff, block["z"])]
-            textureIndex = uniqueTextures.index(blockToGetInfo["activeTextures"][faceName])
+            blockToGetInfo: Block = blockMap[(block.x + xOff, block.y + yOff, block.z)]
+            textureIndex = uniqueTextures.index(blockToGetInfo.activeTextures[faceName])
             newFace["texturesList"].append(textureIndex)
     
     return newFace, alreadyCheckedFaceToPosition
@@ -723,14 +713,14 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
     yOffset = 0
     while True:
         yOffset += 1
-        positionToCheck = (block["x"], block["y"] + yOffset, block["z"])
+        positionToCheck = (block.x, block.y + yOffset, block.z)
         if positionToCheck in alreadyCheckedPositions: break # Face/Block is already in use for another bigger face
         
         if positionToCheck not in blockMapKeys: break # Not a block, breaks mesh & we cannot continue mesh with air block
         blockToCheck = blockMap[positionToCheck]
         
-        if faceName not in blockToCheck["facesToRender"]: break # Block doesn't have the face we do, physically cannot continue mesh
-        #if ourTexture != blockToCheck["activeTextures"][faceName]: break # Not the same texture, it breaks mesh
+        if faceName not in blockToCheck.facesToRender: break # Block doesn't have the face we do, physically cannot continue mesh
+        #if ourTexture != blockToCheck.activeTextures[faceName]: break # Not the same texture, it breaks mesh
         # The face we're checking is active in both blocks
         
         alreadyCheckedFaceToPosition[faceName].append(positionToCheck)
@@ -747,7 +737,7 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
         queueAlreadyChecked = []
         
         for y in range(0, yOffset+1):
-            positionToCheck = (block["x"], block["y"] + y, block["z"] + zOffset)
+            positionToCheck = (block.x, block.y + y, block.z + zOffset)
             if positionToCheck in alreadyCheckedPositions:
                 doXLoop = False
                 break # Face/Block is already in use for another bigger face
@@ -757,11 +747,11 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
                 break # Not a block, breaks mesh & we cannot continue mesh with air block
             blockToCheck = blockMap[positionToCheck]
             
-            if faceName not in blockToCheck["facesToRender"]:
+            if faceName not in blockToCheck.facesToRender:
                 doXLoop = False
                 break # Block doesn't have the face we do, physically cannot continue mesh
             """
-            if ourTexture != blockToCheck["activeTextures"][faceName]:
+            if ourTexture != blockToCheck.activeTextures[faceName]:
                 doXLoop = False
                 break # Not the same texture, it breaks mesh
             """
@@ -777,7 +767,7 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
     zOffset -= 1
     
     newFace = {
-        "position": [block["x"], block["y"], block["z"]],
+        "position": [block.x, block.y, block.z],
         "rotation": faceNameToFaceIndex[faceName],
         "scale": [1 + zOffset, 1 + yOffset],
         "texturesList": [],
@@ -785,8 +775,8 @@ def greedyMeshLeftRight(block, faceName, alreadyCheckedFaceToPosition):
     
     for zOff in range(0, zOffset+1):
         for yOff in range(0, yOffset+1):
-            blockToGetInfo: Block = blockMap[(block["x"], block["y"] + yOff, block["z"] + zOff)]
-            textureIndex = uniqueTextures.index(blockToGetInfo["activeTextures"][faceName])
+            blockToGetInfo: Block = blockMap[(block.x, block.y + yOff, block.z + zOff)]
+            textureIndex = uniqueTextures.index(blockToGetInfo.activeTextures[faceName])
             newFace["texturesList"].append(textureIndex)
     
     return newFace, alreadyCheckedFaceToPosition
@@ -797,14 +787,14 @@ def greedyMeshTopBottom(block, faceName, alreadyCheckedFaceToPosition):
     xOffset = 0
     while True:
         xOffset += 1
-        positionToCheck = (block["x"] + xOffset, block["y"], block["z"])
+        positionToCheck = (block.x + xOffset, block.y, block.z)
         if positionToCheck in alreadyCheckedPositions: break # Face/Block is already in use for another bigger face
         
         if positionToCheck not in blockMapKeys: break # Not a block, breaks mesh & we cannot continue mesh with air block
         blockToCheck = blockMap[positionToCheck]
         
-        if faceName not in blockToCheck["facesToRender"]: break # Block doesn't have the face we do, physically cannot continue mesh
-        #if ourTexture != blockToCheck["activeTextures"][faceName]: break # Not the same texture, it breaks mesh
+        if faceName not in blockToCheck.facesToRender: break # Block doesn't have the face we do, physically cannot continue mesh
+        #if ourTexture != blockToCheck.activeTextures[faceName]: break # Not the same texture, it breaks mesh
         # The face we're checking is active in both blocks
         
         alreadyCheckedFaceToPosition[faceName].append(positionToCheck)
@@ -821,7 +811,7 @@ def greedyMeshTopBottom(block, faceName, alreadyCheckedFaceToPosition):
         queueAlreadyChecked = []
         
         for x in range(0, xOffset+1):
-            positionToCheck = (block["x"] + x, block["y"], block["z"] + zOffset)
+            positionToCheck = (block.x + x, block.y, block.z + zOffset)
             if positionToCheck in alreadyCheckedPositions:
                 doXLoop = False
                 break # Face/Block is already in use for another bigger face
@@ -831,7 +821,7 @@ def greedyMeshTopBottom(block, faceName, alreadyCheckedFaceToPosition):
                 break # Not a block, breaks mesh & we cannot continue mesh with air block
             blockToCheck = blockMap[positionToCheck]
             
-            if faceName not in blockToCheck["facesToRender"]:
+            if faceName not in blockToCheck.facesToRender:
                 doXLoop = False
                 break # Block doesn't have the face we do, physically cannot continue mesh
             # The face we're checking is active in both blocks
@@ -846,16 +836,16 @@ def greedyMeshTopBottom(block, faceName, alreadyCheckedFaceToPosition):
     zOffset -= 1
     
     newFace = {
-        "position": (block["x"], block["y"], block["z"]),
+        "position": [block.x, block.y, block.z],
         "rotation": faceNameToFaceIndex[faceName],
-        "scale": (1 + xOffset, 1 + zOffset),
+        "scale": [1 + xOffset, 1 + zOffset],
         "texturesList": [],
     }
     
     for xOff in range(0, xOffset+1):
         for zOff in range(0, zOffset+1):
-            blockToGetInfo: Block = blockMap[(block["x"] + xOff, block["y"], block["z"] + zOff)]
-            textureIndex = uniqueTextures.index(blockToGetInfo["activeTextures"][faceName])
+            blockToGetInfo: Block = blockMap[(block.x + xOff, block.y, block.z + zOff)]
+            textureIndex = uniqueTextures.index(blockToGetInfo.activeTextures[faceName])
             newFace["texturesList"].append(textureIndex)
     
     return newFace, alreadyCheckedFaceToPosition
@@ -864,18 +854,18 @@ def greedyMeshBlocks(blocks: list[Block], faceName: Literal["None", "top", "bott
     faces = []
     global alreadyCheckedFaceToPosition
     
-    greedyMeshFrontBackFaceNames = ("front", "back")
-    greedyMeshLeftRightFaceNames = ("left", "right")
-    greedyMeshTopBottomFaceNames = ("top", "bottom")
+    greedyMeshFrontBackFaceNames = ["front", "back"]
+    greedyMeshLeftRightFaceNames = ["left", "right"]
+    greedyMeshTopBottomFaceNames = ["top", "bottom"]
     
     for block in blocks:
-        if faceName not in block["facesToRender"]: continue
+        if faceName not in block.facesToRender: continue
             
         if faceName not in alreadyCheckedFaceToPosition:
             alreadyCheckedFaceToPosition[faceName] = []
     
         alreadyCheckedPositions = alreadyCheckedFaceToPosition[faceName]
-        if (block["x"], block["y"], block["z"]) in alreadyCheckedPositions: continue
+        if (block.x, block.y, block.z) in alreadyCheckedPositions: continue
     
         newFace = None
         args = (block, faceName, alreadyCheckedFaceToPosition)
@@ -905,7 +895,7 @@ def executeGreedyMeshOnBlock(specificFace):
     return faces
 
 def distributeGreedyMeshAlgorithm():
-    onlyUseSpecificFaceOptions = ("top", "bottom", "front", "back", "left", "right")
+    onlyUseSpecificFaceOptions = ["top", "bottom", "front", "back", "left", "right"]
     
     listOfFaceResults = []
     for faceType in onlyUseSpecificFaceOptions:
@@ -963,13 +953,31 @@ textureIdsListBuffer = None
 textureIdOffsetsBuffer = None
 currentInstanceBuffer = None
 
-fullCompleteInstanceDataCombined = None
-numOfFaces = None
-
-def generateBuffersIfNeeded():
-    global  positionsBuffer, rotationsBuffer, scalesBuffer
+timeElapsed = 0
+clock = pygame.time.Clock()
+def renderFrame():
+    global timeElapsed, positionsBuffer, rotationsBuffer, scalesBuffer
     global textureIdsListBuffer, textureIdOffsetsBuffer, currentInstanceBuffer
-    global fullCompleteInstanceDataCombined, numOfFaces
+    
+    dt = clock.tick(60)/1000
+    fps = clock.get_fps()
+    print(fps, dt, camera.position)
+    
+    timeElapsed += dt
+    
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            killRenderer()
+            return False
+
+    handleMovement(dt)
+
+    # Calculate view matrix
+    view = camera.get_view_matrix()
+    program['view'].write(view)
+
+    # Clear the screen (and set bg color)
+    ctx.clear(13/255, 70/255, 168/255)
     
     if positionsBuffer == None:
         positionsList = allInstanceData["positions"]
@@ -988,7 +996,7 @@ def generateBuffersIfNeeded():
         scalesBytes = np.array(scalesList).astype(np.uint32).tobytes()
         scalesBuffer = ctx.buffer( scalesBytes )
     
-    if (textureIdsListBuffer == None or textureIdOffsetsBuffer == None or currentInstanceBuffer == None):
+    if textureIdsListBuffer == None or textureIdOffsetsBuffer == None or currentInstanceBuffer == None:
         textureIdListList = allInstanceData["textureLayerIds"]
         
         currentInstanceData = []
@@ -1008,67 +1016,12 @@ def generateBuffersIfNeeded():
         
         textureIdsListBuffer.bind_to_storage_buffer(0)
         textureIdOffsetsBuffer.bind_to_storage_buffer(1)
-    
-
-timeElapsed = 0
-clock = pygame.time.Clock()
-def renderFrame():
-    global timeElapsed, positionsBuffer, rotationsBuffer, scalesBuffer
-    global textureIdsListBuffer, textureIdOffsetsBuffer, currentInstanceBuffer
-    global fullCompleteInstanceDataCombined, numOfFaces
-    
-    dt = clock.tick(60)/1000
-    fps = clock.get_fps()
-    #print(fps, dt, camera.position)
-    
-    timeElapsed += dt
-    
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            killRenderer()
-            return False
-
-    handleMovement(dt)
-
-    # Calculate view matrix
-    view = camera.get_view_matrix()
-    program['view'].write(view)
-
-    # Clear the screen (and set bg color)
-    ctx.clear(13/255, 70/255, 168/255)
-    
-    if fullCompleteInstanceDataCombined == None:
-        generateBuffersIfNeeded()
-    
-    if fullCompleteInstanceDataCombined == None:
-        allPartsHere = (quadVbo != None and positionsBuffer != None and rotationsBuffer != None and scalesBuffer != None and currentInstanceBuffer != None)
         
-        if allPartsHere:
-            fullCompleteInstanceDataCombined = [
-                (quadVbo, '3f 2f', 'in_vert', 'in_texcoord'),
-                (positionsBuffer, '3f/i', 'instance_pos'),
-                (rotationsBuffer, '1u/i', 'instance_rot'),
-                (scalesBuffer, 'u/i', 'instance_scale'),
-                (currentInstanceBuffer, 'u/i', "instance_index")
-            ]
-            # Don't need these anymore
-            del positionsBuffer
-            del rotationsBuffer
-            del scalesBuffer
-            del textureIdsListBuffer
-            del textureIdOffsetsBuffer
-            del currentInstanceBuffer
-            
-    if numOfFaces == None:
-        numOfFaces = len(allInstanceData["rotations"])
+        
+    
+    numOfFaces = len(allInstanceData["rotations"])
     
     # https://moderngl.readthedocs.io/en/5.10.0/topics/buffer_format.html
-    vao = ctx.vertex_array(
-        program,
-        fullCompleteInstanceDataCombined,
-        quadIbo
-    )
-    """
     vao = ctx.vertex_array(
         program,
         [
@@ -1080,7 +1033,6 @@ def renderFrame():
         ],
         quadIbo
     )
-    """
     
     vao.render(instances=numOfFaces)
     
