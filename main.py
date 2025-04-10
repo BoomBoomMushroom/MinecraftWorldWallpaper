@@ -175,12 +175,14 @@ def main():
 
     didDelAllInstanceData = False
 
+    print("Starting to render!")
     running = True
     while running:
         running = chunkRenderer.renderFrame()
         
         if didDelAllInstanceData == False:
             del chunkRenderer.allInstanceData
+            print("Deleted allInstanceData")
             didDelAllInstanceData = True
 
 

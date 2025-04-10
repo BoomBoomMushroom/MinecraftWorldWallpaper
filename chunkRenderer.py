@@ -934,7 +934,7 @@ def distributeGreedyMeshAlgorithm():
     return len(listOfFaceResults)
 
 
-# 
+# Rendering variables like buffers
 allInstanceData = {
     "positions": [],
     "rotations": [],
@@ -1015,7 +1015,7 @@ clock = pygame.time.Clock()
 def renderFrame():
     global timeElapsed, positionsBuffer, rotationsBuffer, scalesBuffer
     global textureIdsListBuffer, textureIdOffsetsBuffer, currentInstanceBuffer
-    global fullCompleteInstanceDataCombined, numOfFaces
+    global fullCompleteInstanceDataCombined, numOfFaces, quadVbo
     
     dt = clock.tick(60)/1000
     fps = clock.get_fps()
@@ -1052,13 +1052,14 @@ def renderFrame():
                 (currentInstanceBuffer, 'u/i', "instance_index")
             ]
             # Don't need these anymore
+            del quadVbo
             del positionsBuffer
             del rotationsBuffer
             del scalesBuffer
             del textureIdsListBuffer
             del textureIdOffsetsBuffer
             del currentInstanceBuffer
-            
+    
     if numOfFaces == None:
         numOfFaces = len(allInstanceData["rotations"])
     
